@@ -1,0 +1,79 @@
+name: CD (simulado)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  entrega:
+    name: Empacotamento e registro de entrega
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalação reproduzível
+        run: npm ci
+
+      - name: Testes automatizados (portão de entrega)
+        run: npm test
+
+      - name: Build da imagem de entrega
+        run: docker build --pull -t "lab40:feature20-${GITHUB_SHA}" .
+
+      - name: Valida a imagem em container efêmero
+        run: |
+          docker run -d --name lab40-cd -p 3000:3000 "lab40:feature20-${GITHUB_SHA}"
+          docker ps --format 'container_id={{.ID}} imagem={{.Image}} nome={{.Names}} status={{.Status}}'
+          echo "CONTAINER_ID=$(docker inspect --format '{{.Id}}' lab40-cd)" >> "$GITHUB_ENV"
+          for tentativa in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health; then break; fi
+            sleep 1
+          done
+          echo ""
+          echo "health: $(curl -fsS http://localhost:3000/health)"
+          echo "HEALTH=$(curl -fsS http://localhost:3000/health)" >> "$GITHUB_ENV"
+          echo "feature20: $(curl -fsS -X POST http://localhost:3000/api/features/20 \
+            -H 'Content-Type: application/json' -d '{"valores":[1,2,2,3,1]}')"
+          docker logs lab40-cd
+          docker stop lab40-cd
+          docker rm lab40-cd
+
+      - name: Exporta a imagem (.tar) e gera o registro de entrega
+        run: |
+          mkdir -p dist
+          docker save "lab40:feature20-${GITHUB_SHA}" -o dist/lab40-feature20.tar
+          {
+            echo "repositorio: ${GITHUB_REPOSITORY}"
+            echo "referencia: ${GITHUB_REF_NAME}"
+            echo "commit: ${GITHUB_SHA}"
+            echo "tag_imagem: lab40:feature20-${GITHUB_SHA}"
+            echo "container_id: ${CONTAINER_ID}"
+            echo "health: ${HEALTH}"
+            echo "artefato_tar: lab40-feature20.tar"
+            echo "execucao: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "data_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } | tee dist/deployment-record.txt
+          docker image inspect "lab40:feature20-${GITHUB_SHA}" --format '{{.Id}}' \
+            | sed 's/^/digest_imagem: /' | tee -a dist/deployment-record.txt
+
+      - name: Publica o artefato (tar + registro)
+        uses: actions/upload-artifact@v7
+        with:
+          name: lab40-delivery-record
+          path: dist/
+          retention-days: 14
