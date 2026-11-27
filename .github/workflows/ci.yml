@@ -57,13 +57,15 @@ jobs:
       - name: Sobe o container e valida os endpoints
         run: |
           docker run -d --name lab40-ci -p 3000:3000 lab40:feature20
+          docker ps --format 'container_id={{.ID}} imagem={{.Image}} nome={{.Names}} status={{.Status}}'
           for tentativa in $(seq 1 30); do
             if curl -fsS http://localhost:3000/health; then break; fi
             sleep 1
           done
-          curl -fsS http://localhost:3000/health
-          curl -fsS -X POST http://localhost:3000/api/features/20 \
-            -H "Content-Type: application/json" -d '{"valores":[1,2,2,3,1]}'
+          echo ""
+          echo "health: $(curl -fsS http://localhost:3000/health)"
+          echo "feature20: $(curl -fsS -X POST http://localhost:3000/api/features/20 \
+            -H 'Content-Type: application/json' -d '{"valores":[1,2,2,3,1]}')"
           curl -sS -o /dev/null -w "status_entrada_invalida=%{http_code}\n" \
             -X POST http://localhost:3000/api/features/20 \
             -H "Content-Type: application/json" -d '{"valores":"1,2"}'

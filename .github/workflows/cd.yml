@@ -38,13 +38,17 @@ jobs:
       - name: Valida a imagem em container efêmero
         run: |
           docker run -d --name lab40-cd -p 3000:3000 "lab40:feature20-${GITHUB_SHA}"
+          docker ps --format 'container_id={{.ID}} imagem={{.Image}} nome={{.Names}} status={{.Status}}'
+          echo "CONTAINER_ID=$(docker inspect --format '{{.Id}}' lab40-cd)" >> "$GITHUB_ENV"
           for tentativa in $(seq 1 30); do
             if curl -fsS http://localhost:3000/health; then break; fi
             sleep 1
           done
-          curl -fsS http://localhost:3000/health
-          curl -fsS -X POST http://localhost:3000/api/features/20 \
-            -H "Content-Type: application/json" -d '{"valores":[1,2,2,3,1]}'
+          echo ""
+          echo "health: $(curl -fsS http://localhost:3000/health)"
+          echo "HEALTH=$(curl -fsS http://localhost:3000/health)" >> "$GITHUB_ENV"
+          echo "feature20: $(curl -fsS -X POST http://localhost:3000/api/features/20 \
+            -H 'Content-Type: application/json' -d '{"valores":[1,2,2,3,1]}')"
           docker logs lab40-cd
           docker stop lab40-cd
           docker rm lab40-cd
@@ -58,6 +62,9 @@ jobs:
             echo "referencia: ${GITHUB_REF_NAME}"
             echo "commit: ${GITHUB_SHA}"
             echo "tag_imagem: lab40:feature20-${GITHUB_SHA}"
+            echo "container_id: ${CONTAINER_ID}"
+            echo "health: ${HEALTH}"
+            echo "artefato_tar: lab40-feature20.tar"
             echo "execucao: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "data_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } | tee dist/deployment-record.txt
